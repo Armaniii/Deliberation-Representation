@@ -122,8 +122,8 @@ def create_embeddings(df):
     valid_mask = df['text_segment'].notna() & (df['text_segment'].str.strip() != '')
     print(f"Found {valid_mask.sum()} valid text segments out of {len(df)} total")
     
-    # Initialize embeddings column with None values
-    df['embeddings'] = None
+    # Initialize embeddings column with None values (object dtype to store numpy arrays)
+    df['embeddings'] = pd.Series([None] * len(df), dtype='object')
     
     if valid_mask.any():
         # Get valid text segments and filter out empty/short ones
@@ -150,8 +150,12 @@ def create_embeddings(df):
             print(f"Generated embeddings shape: {valid_embeddings.shape}")
             
             # Assign embeddings back to original DataFrame
+            # Use object dtype to store numpy arrays
+            if df['embeddings'].dtype != 'object':
+                df['embeddings'] = df['embeddings'].astype('object')
+            
             for idx, emb in zip(filtered_indices, valid_embeddings):
-                df.loc[idx, 'embeddings'] = emb
+                df.at[idx, 'embeddings'] = emb
         
         # Check for any remaining None embeddings
         final_valid_count = df['embeddings'].notna().sum()
