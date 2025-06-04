@@ -72,13 +72,21 @@ def parse_embedding(emb):
         np.array or None: Parsed embedding array or None if parsing fails
     """
     try:
-        # Handle empty or null values
-        if emb is None or pd.isna(emb):
-            return None
-            
         # If already a numpy array, return as is
         if isinstance(emb, np.ndarray):
             return emb
+            
+        # Handle empty or null values (check this after numpy array check)
+        if emb is None:
+            return None
+            
+        # For pandas scalar values, check if it's NaN
+        try:
+            if pd.isna(emb):
+                return None
+        except (TypeError, ValueError):
+            # pd.isna might fail on some types, continue processing
+            pass
             
         # If it's a list, convert to numpy array
         if isinstance(emb, list):
