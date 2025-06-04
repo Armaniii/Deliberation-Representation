@@ -47,16 +47,23 @@ The analysis generates several output files with topic-specific naming (e.g., `_
 
 ### Representation Analysis
 - **`member_subreddit_representation_{topic}.csv`**: 
-  - Congressional member representation across Reddit subreddits
+  - Congressional member Representation Intensity RI(L) calculations
   - Contains: member info (name, govtrack ID, congress), total arguments
-  - Similarity match counts and percentages for each subreddit
-  - Overall match percentage showing how well represented each member is
+  - RI_legislator: Percentage of member's arguments that match Reddit arguments
+  - Per-subreddit RI calculations showing alignment with specific communities
+  - Follows formula: RI(L) = |A_L(R)| / |A(L)| * 100
 
 - **`witness_subreddit_representation_{topic}.csv`**: 
-  - Congressional hearing witness representation across Reddit subreddits
+  - Congressional hearing witness Representation Intensity RI(L) calculations  
   - Contains: witness info (name, hearing file), total arguments
-  - Similarity match counts and percentages for each subreddit
-  - Overall match percentage for witness representation
+  - RI_legislator: Percentage of witness's arguments that match Reddit arguments
+  - Per-subreddit RI calculations for detailed community alignment analysis
+
+- **`subreddit_representation_intensity_{topic}.csv`**: 
+  - Subreddit Representation Intensity RI(S) calculations
+  - Contains: subreddit name, total arguments, matches to Congress
+  - RI_subreddit: Percentage of subreddit arguments represented in Congressional hearings
+  - Follows formula: RI(S) = |A_S(C)| / |A(S)| * 100
 
 ### Missing Data Tracking
 - **`missing_members_{topic}.csv`**: 
@@ -74,6 +81,8 @@ The analysis generates several output files with topic-specific naming (e.g., `_
 - Higher scores indicate better cross-platform representation
 - Lower scores suggest platform-specific argument patterns
 
-**Match Percentages**: Proportion of entity's arguments found in each subreddit
-- 100% = All arguments have similar content in that subreddit
-- 0% = No similar content found in that subreddit
+**Representation Intensity Metrics**:
+- **RI(L)**: Legislator Representation Intensity - Percentage of legislator's arguments that align with Reddit discourse
+- **RI(S)**: Subreddit Representation Intensity - Percentage of subreddit arguments represented in Congressional hearings
+- Higher RI values indicate stronger alignment between platforms
+- Values range from 0% (no alignment) to 100% (complete alignment)

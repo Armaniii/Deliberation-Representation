@@ -356,7 +356,9 @@ def generate_umap_visualization_balanced(congressional_data, reddit_data, sample
     cluster_stats = all_data.groupby('cluster').agg({
         'source': lambda x: {
             'Congressional': (x[x == 'Congressional'].count() / total_congressional) * 100,
-            'Reddit': (x[x == 'Reddit'].count() / total_reddit) * 100
+            'Reddit': (x[x == 'Reddit'].count() / total_reddit) * 100,
+            'Congressional_count': x[x == 'Congressional'].count(),
+            'Reddit_count': x[x == 'Reddit'].count()
         },
         'extracted_topic': lambda x: x.value_counts().idxmax() if 'extracted_topic' in all_data.columns else 'N/A',
         'stance': lambda x: x.value_counts().idxmax() if 'stance' in all_data.columns else 'N/A',
@@ -385,8 +387,10 @@ def generate_umap_visualization_balanced(congressional_data, reddit_data, sample
     # Calculate overlap score
     cluster_stats['overlap_score'] = cluster_stats['source'].apply(lambda x: calculate_overlap(x))
     
-    # Get representative arguments
-    representative_arguments = get_representative_arguments(all_data, cluster_stats, n=200)
+    # Get representative arguments (200 or min cluster size)
+    min_cluster_size = cluster_stats['cluster_size'].min() if not cluster_stats.empty else 200
+    n_representative = min(200, min_cluster_size)
+    representative_arguments = get_representative_arguments(all_data, cluster_stats, n=n_representative)
     
     # Export cluster statistics and representative arguments
     topic_prefix = f'_{topic}' if topic else ''
@@ -439,16 +443,19 @@ def export_cluster_data(cluster_stats, representative_arguments, topic_prefix=''
 
 def calculate_representation(data, reddit_data, entity_type='member', similarity_threshold=0.70, topic=''):
     """
-    Calculate per subreddit representation for each entity (member or witness).
+    Calculate representation intensity metrics following the formal definitions:
+    - RI(S): Percentage of subreddit arguments that match congressional arguments
+    - RI(L): Percentage of legislator arguments that match reddit arguments
     
     Parameters:
         data (pd.DataFrame): Congressional data with is_member and is_witness flags
         reddit_data (pd.DataFrame): Reddit data with subreddit information
         entity_type (str): Type of entity ('member' or 'witness')
         similarity_threshold (float): Cosine similarity threshold for matching
+        topic (str): Topic for file naming
         
     Returns:
-        pd.DataFrame: Statistics for each entity showing subreddit representation
+        pd.DataFrame: Statistics for each entity showing representation intensity
     """
     # Determine which flag to use based on entity_type
     if entity_type.lower() == 'member':
@@ -478,21 +485,28 @@ def calculate_representation(data, reddit_data, entity_type='member', similarity
     
     print(f"After filtering invalid embeddings: {len(entity_filter)} arguments")
     
-    # Initialize results list and missing members tracking
-    results = []
+    # Calculate RI(L): Representation Intensity for Legislators/Witnesses
+    # RI(L) = |A_L(R)| / |A(L)| * 100
+    # Where |A_L(R)| = number of legislator arguments that match Reddit
+    # Where |A(L)| = total number of legislator arguments
+    
+    print("Calculating RI(L): Legislator Representation Intensity...")
+    
+    # Initialize results
+    legislator_results = []
     missing_members = []
     
-    # Process each entity
+    # Process each entity (legislator/witness)
     for entity_key, entity_group in tqdm.tqdm(entity_filter.groupby(groupby_columns), 
                                            desc=f'Processing {entity_type}s'):
         try:
-            # Stack embeddings
+            # Stack embeddings for this entity
             if len(entity_group) == 1:
                 entity_embeddings = np.array([entity_group['embeddings'].values[0]])
             else:
                 entity_embeddings = np.stack(entity_group['embeddings'].values)
                 
-            total_args = entity_embeddings.shape[0]
+            total_entity_args = entity_embeddings.shape[0]  # |A(L)|
             
             # Create initial stats dictionary
             if entity_type.lower() == 'member':
@@ -501,55 +515,103 @@ def calculate_representation(data, reddit_data, entity_type='member', similarity
                     'speaker_first': entity_key[1],
                     'govtrack': entity_key[2],
                     'congress': entity_key[3],
-                    'total_arguments': total_args
+                    'total_arguments': total_entity_args
                 }
             else:  # witness
                 entity_stats = {
                     'speaker_last': entity_key[0],
                     'file_name': entity_key[1],
-                    'total_arguments': total_args
+                    'total_arguments': total_entity_args
                 }
             
-            overall_matched = np.zeros(total_args, dtype=bool)
+            # Stack all Reddit embeddings for global matching
+            all_reddit_embeddings = np.stack(reddit_data['embeddings'].values)
             
-            # Calculate similarity with each subreddit
+            # Calculate similarity between this entity's arguments and all Reddit arguments
+            similarity_matrix = util.pytorch_cos_sim(entity_embeddings, all_reddit_embeddings).numpy()
+            
+            # Find which entity arguments have matches in Reddit (above threshold)
+            max_similarities = np.max(similarity_matrix, axis=1)
+            entity_args_matched_to_reddit = np.sum(max_similarities > similarity_threshold)  # |A_L(R)|
+            
+            # Calculate RI(L) = |A_L(R)| / |A(L)| * 100
+            ri_legislator = (entity_args_matched_to_reddit / total_entity_args) * 100
+            entity_stats['RI_legislator'] = ri_legislator
+            entity_stats['arguments_matched_to_reddit'] = entity_args_matched_to_reddit
+            
+            # Calculate RI(L) per subreddit for detailed analysis
             for subreddit in reddit_data['subreddit'].unique():
                 subreddit_group = reddit_data[reddit_data['subreddit'] == subreddit]
+                subreddit_embeddings = np.stack(subreddit_group['embeddings'].values)
                 
-                # Stack subreddit embeddings
-                if len(subreddit_group) == 1:
-                    subreddit_embeddings = np.array([subreddit_group['embeddings'].values[0]])
-                else:
-                    subreddit_embeddings = np.stack(subreddit_group['embeddings'].values)
+                # Calculate similarity with this specific subreddit
+                subreddit_similarity = util.pytorch_cos_sim(entity_embeddings, subreddit_embeddings).numpy()
+                subreddit_max_similarities = np.max(subreddit_similarity, axis=1)
+                entity_args_matched_to_subreddit = np.sum(subreddit_max_similarities > similarity_threshold)
                 
-                # Compute cosine similarity
-                similarity_matrix = util.pytorch_cos_sim(entity_embeddings, subreddit_embeddings).numpy()
+                # RI(L) for this specific subreddit
+                ri_legislator_subreddit = (entity_args_matched_to_subreddit / total_entity_args) * 100
                 
-                # Find matches above threshold
-                max_similarities = np.max(similarity_matrix, axis=1)
-                matched = max_similarities > similarity_threshold
-                overall_matched = np.logical_or(overall_matched, matched)
-                
-                # Calculate statistics
-                matched_count = np.sum(matched)
-                entity_stats[f'{subreddit}_matched'] = matched_count
-                entity_stats[f'{subreddit}_percentage'] = (matched_count / total_args) * 100
-            
-            # Calculate overall match percentage
-            overall_matched_count = np.sum(overall_matched)
-            entity_stats['overall_match_percentage'] = (overall_matched_count / total_args) * 100
+                entity_stats[f'{subreddit}_RI_legislator'] = ri_legislator_subreddit
+                entity_stats[f'{subreddit}_arguments_matched'] = entity_args_matched_to_subreddit
             
             # Track members with no matches
-            if overall_matched_count == 0:
+            if entity_args_matched_to_reddit == 0:
                 missing_member_info = entity_stats.copy()
-                missing_member_info['reason'] = 'No similarity matches found'
+                missing_member_info['reason'] = 'No similarity matches found in Reddit'
                 missing_members.append(missing_member_info)
             
-            results.append(entity_stats)
+            legislator_results.append(entity_stats)
             
         except Exception as e:
             print(f"Error processing {entity_key}: {e}")
             continue
+    
+    # Now calculate RI(S): Subreddit Representation Intensity
+    # RI(S) = |A_S(C)| / |A(S)| * 100  
+    # Where |A_S(C)| = number of subreddit arguments that match Congressional arguments
+    # Where |A(S)| = total number of arguments in that subreddit
+    
+    print("Calculating RI(S): Subreddit Representation Intensity...")
+    
+    # Stack all congressional embeddings for global matching
+    all_congressional_embeddings = np.stack(entity_filter['embeddings'].values)
+    
+    subreddit_results = []
+    for subreddit in reddit_data['subreddit'].unique():
+        subreddit_group = reddit_data[reddit_data['subreddit'] == subreddit]
+        total_subreddit_args = len(subreddit_group)  # |A(S)|
+        
+        if total_subreddit_args == 0:
+            continue
+            
+        subreddit_embeddings = np.stack(subreddit_group['embeddings'].values)
+        
+        # Calculate similarity between subreddit arguments and all congressional arguments
+        similarity_matrix = util.pytorch_cos_sim(subreddit_embeddings, all_congressional_embeddings).numpy()
+        
+        # Find which subreddit arguments have matches in Congress (above threshold)
+        max_similarities = np.max(similarity_matrix, axis=1)
+        subreddit_args_matched_to_congress = np.sum(max_similarities > similarity_threshold)  # |A_S(C)|
+        
+        # Calculate RI(S) = |A_S(C)| / |A(S)| * 100
+        ri_subreddit = (subreddit_args_matched_to_congress / total_subreddit_args) * 100
+        
+        subreddit_results.append({
+            'subreddit': subreddit,
+            'total_arguments': total_subreddit_args,
+            'arguments_matched_to_congress': subreddit_args_matched_to_congress,
+            'RI_subreddit': ri_subreddit
+        })
+    
+    # Save subreddit representation intensity results
+    if subreddit_results:
+        subreddit_df = pd.DataFrame(subreddit_results)
+        subreddit_output_path = f'/home/arman/nature/subreddit_representation_intensity{topic_prefix}.csv'
+        subreddit_df.to_csv(subreddit_output_path, index=False)
+        print(f"Subreddit RI results saved to {subreddit_output_path}")
+    
+    results = legislator_results
     
     # Convert to DataFrame and save
     entity_stats_df = pd.DataFrame(results)
@@ -737,6 +799,15 @@ def main():
         congressional_data, 
         reddit_data, 
         entity_type='member', 
+        similarity_threshold=args.similarity_threshold,
+        topic=args.topic
+    )
+    
+    print("\nCalculating witness representation...")
+    calculate_representation(
+        congressional_data, 
+        reddit_data, 
+        entity_type='witness', 
         similarity_threshold=args.similarity_threshold,
         topic=args.topic
     )
