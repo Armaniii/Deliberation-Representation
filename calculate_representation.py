@@ -44,7 +44,7 @@ TOPIC_CONFIGS = {
         'output_prefix': 'abortion'
     },
     'gmo': {
-        'congress_file': "/home/arman/apsa/congress_data/gmo/hearings_gmo_stance.csv",
+        'congress_file': "/home/arman/nature/congress_data/gmo/congress_argument_analysis_results_all.pkl",
         'reddit_file': "/home/arman/nature/reddit_data/gmo/reddit_argument_analysis_results_all_gmo.pkl",
         'output_prefix': 'gmo'
     },
@@ -72,12 +72,36 @@ def parse_embedding(emb):
         np.array or None: Parsed embedding array or None if parsing fails
     """
     try:
+        # Handle empty or null values
+        if emb is None or pd.isna(emb):
+            return None
+            
+        # If already a numpy array, return as is
+        if isinstance(emb, np.ndarray):
+            return emb
+            
+        # If it's a list, convert to numpy array
+        if isinstance(emb, list):
+            return np.array(emb)
+            
+        # If it's a string, try to parse it
         if isinstance(emb, str):
-            return np.array(ast.literal_eval(emb))
-    except (ValueError, SyntaxError) as e:
-        print(f"Error parsing embedding: {e}")
+            # Handle empty strings
+            if not emb.strip():
+                return None
+            # Try parsing as literal
+            parsed = ast.literal_eval(emb)
+            return np.array(parsed)
+            
+        # For other types, try direct conversion
+        return np.array(emb)
+        
+    except (ValueError, SyntaxError, TypeError) as e:
+        print(f"Error parsing embedding (type: {type(emb)}): {str(e)[:100]}")
         return None
-    return emb
+    except Exception as e:
+        print(f"Unexpected error parsing embedding: {str(e)[:100]}")
+        return None
 
 
 def create_embeddings(df):
@@ -92,24 +116,48 @@ def create_embeddings(df):
     """
     model = SentenceTransformer('/home/arman/vienna/models/contrastive_finetune_v2_mpnet-v2_o3')
     
+    print(f"Starting embedding creation for {len(df)} rows")
+    
     # Create mask for valid text segments
-    valid_mask = df['text_segment'].notna()
+    valid_mask = df['text_segment'].notna() & (df['text_segment'].str.strip() != '')
+    print(f"Found {valid_mask.sum()} valid text segments out of {len(df)} total")
     
     # Initialize embeddings column with None values
     df['embeddings'] = None
     
     if valid_mask.any():
-        # Generate embeddings only for valid text segments
-        valid_embeddings = model.encode(
-            df.loc[valid_mask, 'text_segment'].tolist(),
-            show_progress_bar=True
-        )
+        # Get valid text segments and filter out empty/short ones
+        valid_texts = df.loc[valid_mask, 'text_segment'].tolist()
         
-        # Create a Series of embeddings to align with the masked indices
-        embeddings_series = pd.Series([emb for emb in valid_embeddings], index=df[valid_mask].index)
+        # Filter out texts that are too short (less than 3 characters)
+        filtered_texts = []
+        filtered_indices = []
+        for idx, text in zip(df[valid_mask].index, valid_texts):
+            if isinstance(text, str) and len(text.strip()) >= 3:
+                filtered_texts.append(text.strip())
+                filtered_indices.append(idx)
         
-        # Assign embeddings back to original DataFrame using the series
-        df.loc[valid_mask, 'embeddings'] = embeddings_series
+        print(f"Processing {len(filtered_texts)} text segments for embedding generation")
+        
+        if filtered_texts:
+            # Generate embeddings only for valid text segments
+            valid_embeddings = model.encode(
+                filtered_texts,
+                show_progress_bar=True,
+                batch_size=32
+            )
+            
+            print(f"Generated embeddings shape: {valid_embeddings.shape}")
+            
+            # Assign embeddings back to original DataFrame
+            for idx, emb in zip(filtered_indices, valid_embeddings):
+                df.loc[idx, 'embeddings'] = emb
+        
+        # Check for any remaining None embeddings
+        final_valid_count = df['embeddings'].notna().sum()
+        print(f"Final valid embeddings: {final_valid_count}")
+        if final_valid_count < len(df):
+            print(f"Warning: {len(df) - final_valid_count} rows have invalid/missing embeddings")
     
     return df
 
@@ -158,6 +206,7 @@ def get_representative_arguments(all_data, clusters_to_visualize, n=100):
         ])
         
         # Calculate distance to centroid for each point in UMAP space
+        cluster_data = cluster_data.copy()  # Fix SettingWithCopyWarning
         cluster_data['distance_to_centroid'] = cluster_data.apply(
             lambda row: np.sqrt((row['UMAP1'] - centroid_umap[0])**2 + (row['UMAP2'] - centroid_umap[1])**2),
             axis=1
@@ -215,7 +264,7 @@ def calculate_subreddit_representation(cluster, subreddit_column, all_data):
 
 
 def generate_umap_visualization_balanced(congressional_data, reddit_data, sample_size=10000, 
-                                       num_components=2, congress_length=0, reddit_length=0):
+                                       num_components=2, congress_length=0, reddit_length=0, topic=''):
     """
     Generate a balanced UMAP visualization of congressional and Reddit data using GPU acceleration.
     
@@ -328,7 +377,8 @@ def generate_umap_visualization_balanced(congressional_data, reddit_data, sample
     representative_arguments = get_representative_arguments(all_data, cluster_stats, n=200)
     
     # Export cluster statistics and representative arguments
-    export_cluster_data(cluster_stats, representative_arguments)
+    topic_prefix = f'_{topic}' if topic else ''
+    export_cluster_data(cluster_stats, representative_arguments, topic_prefix)
     
     print("UMAP visualization and clustering complete.")
     
@@ -337,13 +387,14 @@ def generate_umap_visualization_balanced(congressional_data, reddit_data, sample
     # fig.write_image("/home/arman/nature/umap_visualization.png")
 
 
-def export_cluster_data(cluster_stats, representative_arguments):
+def export_cluster_data(cluster_stats, representative_arguments, topic_prefix=''):
     """
     Export cluster statistics and representative arguments to CSV.
     
     Parameters:
         cluster_stats (pd.DataFrame): Cluster statistics
         representative_arguments (pd.DataFrame): Representative arguments for each cluster
+        topic_prefix (str): Topic prefix for output file naming (e.g., '_gmo', '_gun')
     """
     # Group representative arguments by cluster
     grouped_args = representative_arguments.groupby('cluster')['text_segment'].apply(
@@ -367,13 +418,14 @@ def export_cluster_data(cluster_stats, representative_arguments):
     # Merge with representative arguments
     export_data = export_data.merge(grouped_args, on='cluster', how='left')
     
-    # Save to CSV
-    export_data.to_csv("/home/arman/nature/clusters_to_visualize.csv", 
+    # Save to CSV with topic prefix
+    output_file = f"/home/arman/nature/clusters_to_visualize{topic_prefix}.csv"
+    export_data.to_csv(output_file, 
                       index=False, quoting=csv.QUOTE_ALL, escapechar='\\')
-    print("Cluster data exported to clusters_to_visualize.csv")
+    print(f"Cluster data exported to {output_file}")
 
 
-def calculate_representation(data, reddit_data, entity_type='member', similarity_threshold=0.70):
+def calculate_representation(data, reddit_data, entity_type='member', similarity_threshold=0.70, topic=''):
     """
     Calculate per subreddit representation for each entity (member or witness).
     
@@ -391,18 +443,22 @@ def calculate_representation(data, reddit_data, entity_type='member', similarity
         flag_column = 'is_member'
         entity_filter = data[data[flag_column] == 1]
         groupby_columns = ['speaker_last', 'speaker_first', 'govtrack', 'congress']
-        output_path = '/home/arman/nature/member_subreddit_representation.csv'
+        topic_prefix = f'_{topic}' if topic else ''
+        output_path = f'/home/arman/nature/member_subreddit_representation{topic_prefix}.csv'
     elif entity_type.lower() == 'witness':
         flag_column = 'is_witness'
         entity_filter = data[data[flag_column] == 1]
         groupby_columns = ['speaker_last', 'file_name']
-        output_path = '/home/arman/nature/witness_subreddit_representation.csv'
+        topic_prefix = f'_{topic}' if topic else ''
+        output_path = f'/home/arman/nature/witness_subreddit_representation{topic_prefix}.csv'
     else:
         raise ValueError("entity_type must be either 'member' or 'witness'")
     
     print(f"Processing {entity_type}s: {len(entity_filter)} arguments found")
     
     # Parse embeddings and filter out invalid data
+    entity_filter = entity_filter.copy()  # Fix SettingWithCopyWarning
+    reddit_data = reddit_data.copy()  # Fix SettingWithCopyWarning
     entity_filter['embeddings'] = entity_filter['embeddings'].apply(parse_embedding)
     reddit_data['embeddings'] = reddit_data['embeddings'].apply(parse_embedding)
     entity_filter = entity_filter.dropna(subset=['embeddings'])
@@ -410,8 +466,9 @@ def calculate_representation(data, reddit_data, entity_type='member', similarity
     
     print(f"After filtering invalid embeddings: {len(entity_filter)} arguments")
     
-    # Initialize results list
+    # Initialize results list and missing members tracking
     results = []
+    missing_members = []
     
     # Process each entity
     for entity_key, entity_group in tqdm.tqdm(entity_filter.groupby(groupby_columns), 
@@ -470,6 +527,12 @@ def calculate_representation(data, reddit_data, entity_type='member', similarity
             overall_matched_count = np.sum(overall_matched)
             entity_stats['overall_match_percentage'] = (overall_matched_count / total_args) * 100
             
+            # Track members with no matches
+            if overall_matched_count == 0:
+                missing_member_info = entity_stats.copy()
+                missing_member_info['reason'] = 'No similarity matches found'
+                missing_members.append(missing_member_info)
+            
             results.append(entity_stats)
             
         except Exception as e:
@@ -484,6 +547,16 @@ def calculate_representation(data, reddit_data, entity_type='member', similarity
         print(f"Results saved to {output_path}")
     else:
         print("No results to save")
+    
+    # Save missing members data
+    if missing_members:
+        missing_df = pd.DataFrame(missing_members)
+        missing_output_path = f'/home/arman/nature/missing_members{topic_prefix}.csv'
+        missing_df.to_csv(missing_output_path, index=False)
+        print(f"Missing members data saved to {missing_output_path}")
+        print(f"Found {len(missing_members)} members/witnesses with no matches")
+    else:
+        print("All members/witnesses had at least one match")
     
     return entity_stats_df
 
@@ -642,7 +715,8 @@ def main():
         sample_size=args.sample_size,
         num_components=2,
         congress_length=len(congressional_data),
-        reddit_length=len(reddit_data)
+        reddit_length=len(reddit_data),
+        topic=args.topic
     )
     
     # Calculate representation
@@ -651,7 +725,8 @@ def main():
         congressional_data, 
         reddit_data, 
         entity_type='member', 
-        similarity_threshold=args.similarity_threshold
+        similarity_threshold=args.similarity_threshold,
+        topic=args.topic
     )
     
     print("\nAnalysis complete!")
