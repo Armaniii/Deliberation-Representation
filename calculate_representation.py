@@ -66,8 +66,8 @@ TOPIC_CONFIGS = {
         'output_prefix': 'nuclear'
     },
     'gun_control': {
-        'congress_file': "/home/arman/apsa/congress_data/gun_control/hearings_gun_control_stance.csv",
-        'reddit_file': "/home/arman/nature/reddit_data/gun_control/reddit_argument_analysis_results_all_gun_control.pkl",
+        'congress_file': "/home/arman/nature/congress_data/gun/congress_argument_analysis_results_all.pkl",
+        'reddit_file': "/home/arman/nature/reddit_data/gun/reddit_argument_analysis_results_all_gun.pkl",
         'output_prefix': 'gun_control'
     }
 }
@@ -1619,9 +1619,10 @@ def process_member_witness_data(congressional_data, topic='abortion'):
     return congressional_data
 
 
-def create_narrative_sankey(topic='', min_cluster_size=100, top_n=15):
+def create_narrative_sankey(topic='', min_cluster_size=50, top_n=15):
     """
-    Create a Sankey diagram showing narrative flow from Reddit and Congressional sources to topics.
+    Create a publication-ready Sankey diagram showing narrative flow from Reddit and Congressional sources to topics.
+    Optimized for academic journals with sophisticated styling and maximum information density.
     
     Parameters:
         topic (str): Topic suffix for file naming (e.g., '_abortion', '_gmo')
@@ -1638,98 +1639,151 @@ def create_narrative_sankey(topic='', min_cluster_size=100, top_n=15):
         return
     
     # Read and filter data
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, encoding='latin1', on_bad_lines='warn')
     df_filtered = df[(df['cluster_size'] >= min_cluster_size) & (df['cluster'] != -1)]
+    
+    # Only show topics where o3_short_label is not NaN
+    if 'o3_short_label' in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered['o3_short_label'].notna()]
+        print(f"Filtered to {len(df_filtered)} topics with valid o3_short_label")
+    
     df_filtered = df_filtered.nlargest(top_n, 'cluster_size')
     
     if len(df_filtered) == 0:
         print(f"No clusters meet criteria (min_size={min_cluster_size})")
         return
     
-    # Create nodes
-    node_labels = ['Reddit', 'Congressional']
-    node_colors = ['#FF4500', '#005BAC']
+    # Academic color palette - sophisticated and print-friendly
+    academic_colors = {
+        'reddit': '#C75B27',      # Burnt orange - warm, professional
+        'congress': '#1B3B6F',    # Navy blue - authoritative, institutional
+        'high_overlap': '#2E7E32',  # Forest green - balanced, harmonious
+        'med_overlap': '#F57C00',   # Amber - transitional, emerging
+        'low_overlap': '#616161',   # Dark gray - single-platform
+        'link_reddit': 'rgba(199, 91, 39, 0.6)',     # Semi-transparent burnt orange
+        'link_congress': 'rgba(27, 59, 111, 0.6)',   # Semi-transparent navy
+    }
     
-    for _, row in df_filtered.iterrows():
-        topic_label = row['topic_label'].replace('_', ' ')[:30]  # Truncate long labels
-        node_labels.append(topic_label)
-        
-        # Color by overlap score
-        if row['overlap_score'] > 0.1:
-            node_colors.append('#2ECC71')  # Green - balanced
-        elif row['overlap_score'] > 0.05:
-            node_colors.append('#F39C12')  # Orange - emerging
+    # Calculate statistics for enhanced information display
+    total_reddit = int(df_filtered['total_reddit_arguments'].iloc[0])
+    total_congress = int(df_filtered['total_congress_arguments'].iloc[0])
+    total_clusters = len(df_filtered)
+    
+    # Calculate overlap distribution for dynamic thresholds
+    overlap_scores = df_filtered['overlap_score'].values
+    overlap_q75 = np.percentile(overlap_scores, 75)
+    overlap_q50 = np.percentile(overlap_scores, 50)
+    mean_overlap = np.mean(overlap_scores)
+    
+    # Create clean, readable node labels with essential information only
+    node_labels = [
+        f"Reddit<br>{total_reddit:,}",
+        f"Congressional<br>{total_congress:,}"
+    ]
+    node_colors = [academic_colors['reddit'], academic_colors['congress']]
+    
+    # Enhanced topic node creation with minimal, essential information
+    sorted_df = df_filtered.sort_values('overlap_score', ascending=False)
+    
+    for idx, row in sorted_df.iterrows():
+        # Use proper topic label (fix the o3_short_label issue)
+        if 'o3_short_label' in row and pd.notna(row['o3_short_label']):
+            base_label = str(row['o3_short_label']).strip()
         else:
-            node_colors.append('#95A5A6')  # Gray - single source
+            base_label = f"Topic {row['cluster']}"
+        
+        # Keep labels concise - just the topic name and size
+        cluster_size = int(row['cluster_size'])
+        enhanced_label = f"{base_label}<br>n={cluster_size:,}"
+        
+        node_labels.append(enhanced_label)
+        
+        # Sophisticated color coding based on dynamic thresholds
+        overlap_pct = row['overlap_score']
+        if overlap_pct >= overlap_q75:
+            node_colors.append(academic_colors['high_overlap'])
+        elif overlap_pct >= overlap_q50:
+            node_colors.append(academic_colors['med_overlap'])
+        else:
+            node_colors.append(academic_colors['low_overlap'])
     
-    # Create links
+    # Create enhanced links with variable opacity based on strength
     sources, targets, values, link_colors = [], [], [], []
     
-    for idx, row in df_filtered.iterrows():
+    for idx, (_, row) in enumerate(sorted_df.iterrows()):
         topic_idx = idx + 2
         
+        # Reddit to topic flows
         if row['reddit_arguments_in_cluster'] > 0:
             sources.append(0)
             targets.append(topic_idx)
             values.append(row['reddit_pct'])
-            link_colors.append('rgba(255, 69, 0, 0.4)')
+            # Variable opacity based on flow strength
+            opacity = 0.4 + (row['reddit_pct'] / 100) * 0.4  # 0.4-0.8 range
+            link_colors.append(f"rgba(199, 91, 39, {opacity:.2f})")
         
+        # Congressional to topic flows
         if row['congress_arguments_in_cluster'] > 0:
             sources.append(1)
             targets.append(topic_idx)
             values.append(row['congress_pct'])
-            link_colors.append('rgba(0, 91, 172, 0.4)')
+            # Variable opacity based on flow strength
+            opacity = 0.4 + (row['congress_pct'] / 100) * 0.4  # 0.4-0.8 range
+            link_colors.append(f"rgba(27, 59, 111, {opacity:.2f})")
     
-    # Create Sankey diagram
+    # Create publication-quality Sankey diagram
     fig = go.Figure(data=[go.Sankey(
-        arrangement='snap',
+        arrangement='perpendicular',  # Better for academic layout
         node=dict(
-            pad=15,
-            thickness=20,
-            line=dict(color="black", width=0.5),
+            pad=30,                   # More padding to prevent overlap
+            thickness=35,             # Thicker nodes for better visibility
+            line=dict(color="#2C2C2C", width=1.5),  # Slightly thicker borders
             label=node_labels,
-            color=node_colors
+            color=node_colors,
+            hovertemplate='<b>%{label}</b><extra></extra>'  # Simplified hover
         ),
         link=dict(
             source=sources,
             target=targets,
             value=values,
-            color=link_colors
-        )
+            color=link_colors,
+            hovertemplate='<b>%{source.label}</b> → <b>%{target.label}</b><br>' +
+                         'Flow: %{value:.1f}%<extra></extra>'  # Simplified hover
+        ),
+        textfont=dict(size=16, family='Arial, sans-serif', color='black')  # Large, readable font for all text
     )])
     
-    # Update layout
-    total_reddit = int(df_filtered['total_reddit_arguments'].iloc[0])
-    total_congress = int(df_filtered['total_congress_arguments'].iloc[0])
+    # Calculate aggregate statistics for subtitle
+    total_represented_reddit = sum(row['reddit_arguments_in_cluster'] for _, row in df_filtered.iterrows())
+    total_represented_congress = sum(row['congress_arguments_in_cluster'] for _, row in df_filtered.iterrows())
+    coverage_reddit = (total_represented_reddit / total_reddit) * 100
+    coverage_congress = (total_represented_congress / total_congress) * 100
+    
+    # Enhanced academic layout
+    topic_display = topic.replace('_', ' ').title() if topic else 'Cross-Platform Discourse'
     
     fig.update_layout(
         title={
-            'text': f"Narrative Flow: Reddit vs Congressional Arguments ({topic.upper() if topic else 'ALL'})",
+            'text': f"<b>Cross-Platform Discourse: {topic_display}</b>",
             'x': 0.5,
             'xanchor': 'center',
-            'font': {'size': 18}
+            'font': {'size': 20, 'family': 'Arial, sans-serif'}
         },
-        font={'size': 11},
-        height=600,
-        width=1000,
-        margin=dict(l=100, r=100, t=80, b=50),
-        annotations=[
-            dict(
-                x=0.01, y=0.95, xref='paper', yref='paper',
-                text=f"<b>Reddit</b><br>{total_reddit:,} posts",
-                showarrow=False, font=dict(size=12), xanchor='left'
-            ),
-            dict(
-                x=0.99, y=0.95, xref='paper', yref='paper',
-                text=f"<b>Congressional</b><br>{total_congress:,} testimonies",
-                showarrow=False, font=dict(size=12), xanchor='right'
-            )
-        ]
+        font={'size': 14, 'family': 'Arial, sans-serif'},  # Larger base font
+        height=700,   # Taller for better spacing
+        width=1200,   # Wider for better node separation
+        margin=dict(l=100, r=100, t=100, b=60),  # More margin for spacing
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        # Remove all annotations to reduce clutter - let the diagram speak for itself
     )
     
-    # Save as PNG
-    fig.write_image(output_path, width=1200, height=800, scale=2)
-    print(f"Sankey diagram saved to: {output_path}")
+    # Save with high resolution for publication
+    fig.write_image(output_path, width=1800, height=1050, scale=3, engine='kaleido')
+    print(f"Clean, high-visibility Sankey diagram saved to: {output_path}")
+    print(f"Resolution: 1800×1050 pixels at 3x scale (publication quality)")
+    print(f"Topics displayed: {total_clusters} (minimum size: {min_cluster_size})")
+    print(f"Streamlined design with large fonts and clear spacing for maximum readability")
 
 
 def main():
@@ -1746,7 +1800,7 @@ def main():
                        help='Similarity threshold for representation calculation')
     parser.add_argument('--create_sankey', action='store_true',
                        help='Create Sankey diagram visualization')
-    parser.add_argument('--sankey_min_size', type=int, default=100,
+    parser.add_argument('--sankey_min_size', type=int, default=40,
                        help='Minimum cluster size for Sankey diagram')
     parser.add_argument('--sankey_top_n', type=int, default=15,
                        help='Maximum number of topics to show in Sankey')
@@ -1755,7 +1809,7 @@ def main():
     parser.add_argument('--consolidation_method', type=str, default='hybrid',
                        choices=['name_similarity', 'content_similarity', 'bertopic', 'hybrid'],
                        help='Method for topic consolidation')
-    parser.add_argument('--consolidation_threshold', type=float, default=0.6,
+    parser.add_argument('--consolidation_threshold', type=float, default=0.7,
                        help='Similarity threshold for topic consolidation')
     
     args = parser.parse_args()

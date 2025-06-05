@@ -11,6 +11,7 @@
 ## 📋 Table of Contents
 
 - [🎯 Overview](#-overview)
+- [🔄 Complete Pipeline](#-complete-pipeline)
 - [✨ Key Features](#-key-features)
 - [🔬 Scientific Motivation](#-scientific-motivation)
 - [🏗️ Architecture](#️-architecture)
@@ -57,6 +58,47 @@ This repository implements a sophisticated computational framework for analyzing
 - **Progression Stage Detection**: Maps arguments to conceptual development stages
 - **Causal Flow Visualization**: Shows how narratives evolve (e.g., `health → women's_rights → reproductive_rights → abortion_access`)
 - **Dynamic Chain Assignment**: Adapts to different policy domains automatically
+
+---
+
+## 🔄 Complete Pipeline
+
+### **High-Level Flow: From Raw Arguments to Analysis Results**
+
+```
+Raw PKL Files → Data Loading → Text Normalization → Embedding Generation → 
+Topic Consolidation (optional) → Narrative Coherence → Pure Clustering → 
+Statistical Analysis → CSV Export + Representation Calculations
+```
+
+### **Input Sources**
+- **Congressional Data**: `.pkl` files containing processed hearing transcripts with argument classification, topic extraction, and stance detection
+- **Reddit Data**: `.pkl` files containing processed discussion posts with argument classification, topic extraction, and stance detection
+- **Member/Witness Data**: `.csv` files linking congressional speakers to biographical information
+
+### **Processing Steps**
+1. **Data Loading & Filtering**: Load topic-specific datasets, filter for arguments only, standardize columns
+2. **Text Normalization**: Platform-specific text cleaning (Reddit: remove usernames/URLs; Congressional: remove titles/procedures)
+3. **Embedding Generation**: Create 768-dim vectors using contrastive fine-tuned MPNet model
+4. **Topic Consolidation** (Optional): Merge fragmented topics using hybrid similarity (name + content + structure + stance + narrative)
+5. **Narrative Coherence**: Split topics with mixed stances into pure topic-stance combinations
+6. **Pure Clustering**: Run BERTopic separately on each topic-stance group to ensure ideological coherence
+7. **Statistical Analysis**: Calculate representation intensity metrics (RI(L), RI(S)) and cluster statistics
+8. **Export Generation**: Create comprehensive CSV outputs with cluster assignments, representative documents, and analysis results
+
+### **Key Outputs**
+- **`clusters_to_visualize_{topic}.csv`**: Main cluster analysis with 20+ columns including overlap scores, representative documents, stance distributions
+- **`member_subreddit_representation_{topic}.csv`**: Legislator-level representation intensity metrics
+- **`witness_subreddit_representation_{topic}.csv`**: Witness-level representation intensity metrics  
+- **`all_documents_topics_{topic}.csv`**: Complete document-to-cluster mapping for all processed arguments
+- **`subreddit_representation_intensity_{topic}.csv`**: Subreddit-level representation metrics
+- **Additional files**: Missing entities, topic hierarchies, enhanced topic information
+
+### **Guaranteed Outputs Integrity**
+- **Stance Purity**: Every cluster contains only one topic-stance combination
+- **Cross-Platform Coverage**: Tracks representation across Reddit and Congressional platforms
+- **Methodological Rigor**: Formal RI(L) and RI(S) metrics with similarity thresholds
+- **Complete Traceability**: Every argument mapped to final cluster with full metadata
 
 ---
 
@@ -123,34 +165,49 @@ economic anxiety → job security → trade policy → immigration restrictions
 <summary><strong>📐 System Architecture Diagram</strong></summary>
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 graph TB
     subgraph "Data Sources"
-        A["Reddit Arguments\n~2M posts"] 
-        B["Congressional Hearings\n~500K statements"]
+        A["`Reddit Arguments
+        ~2M posts`"] 
+        B["`Congressional Hearings
+        ~500K statements`"]
     end
     
     subgraph "Preprocessing"
-        C["Text Normalization\nSource-Specific"]
-        D["Embedding Generation\nContrastive Fine-tuned MPNet"]
-        E["WIBA Topic Extraction\nPolicy Domain Classification"]
+        C["`Text Normalization
+        Source-Specific`"]
+        D["`Embedding Generation
+        Contrastive Fine-tuned MPNet`"]
+        E["`WIBA Topic Extraction
+        Policy Domain Classification`"]
     end
     
     subgraph "Topic Consolidation"
-        F["AutomaticConsolidator\nHybrid Similarity"]
-        G["Stance Compatibility\nMatrix"]
-        H["Narrative Flow\nDetection"]
+        F["`AutomaticConsolidator
+        Hybrid Similarity`"]
+        G["`Stance Compatibility
+        Matrix`"]
+        H["`Narrative Flow
+        Detection`"]
     end
     
     subgraph "Pure Clustering"
-        I["Topic-Stance\nSeparation"]
-        J["BERTopic\nPer Group"]
-        K["KeyBERT Label\nGeneration"]
+        I["`Topic-Stance
+        Separation`"]
+        J["`BERTopic
+        Per Group`"]
+        K["`KeyBERT Label
+        Generation`"]
     end
     
     subgraph "Analysis & Export"
-        L["Representation\nIntensity RI(L), RI(S)"]
-        M["Narrative Chain\nAssignment"]
-        N["CSV Export\nclusters_to_visualize.csv"]
+        L["`Representation
+        Intensity RI(L), RI(S)`"]
+        M["`Narrative Chain
+        Assignment`"]
+        N["`CSV Export
+        clusters_to_visualize.csv`"]
     end
     
     A --> C
@@ -184,25 +241,34 @@ graph TB
 <summary><strong>🔄 Data Processing Pipeline</strong></summary>
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
     subgraph "Raw Arguments"
-        A["Reddit Posts\nr/politics, r/conservative, etc."]
-        B["Congressional Transcripts\nHouse/Senate Hearings"]
+        A["`Reddit Posts
+        r/politics, r/conservative, etc.`"]
+        B["`Congressional Transcripts
+        House/Senate Hearings`"]
     end
     
     subgraph "Text Normalization"
-        C["Reddit: Remove usernames,\nURLs, escape sequences"]
-        D["Congressional: Remove titles,\nprocedural language"]
+        C["`Reddit: Remove usernames,
+        URLs, escape sequences`"]
+        D["`Congressional: Remove titles,
+        procedural language`"]
     end
     
     subgraph "Embedding Generation"
-        E["Contrastive Fine-tuned\nMPNet-v2 Model"]
-        F["768-dim Embeddings\nSemantic Representations"]
+        E["`Contrastive Fine-tuned
+        MPNet-v2 Model`"]
+        F["`768-dim Embeddings
+        Semantic Representations`"]
     end
     
     subgraph "Initial Classification"
-        G["WIBA Topic Extraction\nPolicy Domain Labels"]
-        H["Stance Detection\nPro/Con/Neutral"]
+        G["`WIBA Topic Extraction
+        Policy Domain Labels`"]
+        H["`Stance Detection
+        Pro/Con/Neutral`"]
     end
     
     A --> C
@@ -231,27 +297,40 @@ flowchart LR
 <summary><strong>🔗 Topic Consolidation Algorithm</strong></summary>
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
     subgraph "Input Topics"
-        A["abortion rights\nreproductive choice\nfamily planning\nwomens health"]
+        A["`abortion rights
+        reproductive choice
+        family planning
+        womens health`"]
     end
     
     subgraph "Similarity Matrices"
-        B["Name Similarity\nSemantic embeddings"]
-        C["Content Similarity\nDocument centroids"]
-        D["Structural Similarity\nWord overlap"]
-        E["Stance Compatibility\nPro/Con alignment"]
-        F["Narrative Relationships\nCausal flow detection"]
+        B["`Name Similarity
+        Semantic embeddings`"]
+        C["`Content Similarity
+        Document centroids`"]
+        D["`Structural Similarity
+        Word overlap`"]
+        E["`Stance Compatibility
+        Pro/Con alignment`"]
+        F["`Narrative Relationships
+        Causal flow detection`"]
     end
     
     subgraph "Graph-Based Merging"
-        G["Weighted Combination\nα₁B + α₂C + α₃D + α₄E + α₅F"]
-        H["Connected Components\nNetwork clustering"]
-        I["Representative Selection\nMost frequent/general"]
+        G["`Weighted Combination
+        α₁B + α₂C + α₃D + α₄E + α₅F`"]
+        H["`Connected Components
+        Network clustering`"]
+        I["`Representative Selection
+        Most frequent/general`"]
     end
     
     subgraph "Output"
-        J["Consolidated Topics\nreproductive rights"]
+        J["`Consolidated Topics
+        reproductive rights`"]
     end
     
     A --> B
@@ -280,9 +359,16 @@ Combined_Similarity = 0.2×Name + 0.3×Content + 0.1×Structural + 0.25×Stance 
 ```
 
 **Stance Compatibility Rules:**
-- ✅ `pro_choice` + `reproductive_rights` = High compatibility
-- ❌ `pro_choice` + `pro_life` = Zero compatibility  
-- ⚠️ `mixed_stance` + `pure_stance` = Reduced compatibility
+- ✅ **Compatible Stances**: Topics with same dominant stance (e.g., `Argument_For` + `Argument_For`)
+- ❌ **Opposing Stances**: Zero compatibility for opposing pairs (`Argument_For` ↔ `Argument_Against`, `pro` ↔ `con`)
+- ⚠️ **Mixed vs Pure**: Reduced compatibility when one topic has mixed stances and another is stance-pure
+- 📊 **Entropy-Based**: Uses stance distribution entropy to measure topic purity and adjust compatibility
+
+**Graph-Based Merging:**
+1. **Network Creation**: Edges between topics if combined similarity > threshold (default: 0.7)
+2. **Connected Components**: Use NetworkX to find natural topic clusters
+3. **Representative Selection**: Choose most general topic name with highest document frequency
+4. **Stance Verification**: Ensure merged groups maintain stance coherence
 
 </details>
 
@@ -292,23 +378,35 @@ Combined_Similarity = 0.2×Name + 0.3×Content + 0.1×Structural + 0.25×Stance 
 <summary><strong>🎯 Pure Clustering Strategy</strong></summary>
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
     subgraph "Topic-Stance Groups"
-        A["abortion_pro\n2,847 arguments"]
-        B["abortion_con\n1,923 arguments"]
-        C["guncontrol_pro\n3,156 arguments"]
-        D["guncontrol_con\n2,689 arguments"]
+        A["`abortion_pro
+        2,847 arguments`"]
+        B["`abortion_con
+        1,923 arguments`"]
+        C["`guncontrol_pro
+        3,156 arguments`"]
+        D["`guncontrol_con
+        2,689 arguments`"]
     end
     
     subgraph "Per-Group BERTopic"
-        E["BERTopic Instance\nMin size: 10"]
-        F["KeyBERT Labels\nMeaningful keywords"]
-        G["Outlier Detection\nNoise handling"]
+        E["`BERTopic Instance
+        Min size: 10`"]
+        F["`KeyBERT Labels
+        Meaningful keywords`"]
+        G["`Outlier Detection
+        Noise handling`"]
     end
     
     subgraph "Pure Clusters"
-        H["Cluster 1: abortion_pro_rights\nCluster 2: abortion_pro_healthcare\nCluster 3: abortion_pro_autonomy"]
-        I["Cluster 4: abortion_con_life\nCluster 5: abortion_con_moral\nCluster 6: abortion_con_religious"]
+        H["`Cluster 1: abortion_pro_rights
+        Cluster 2: abortion_pro_healthcare
+        Cluster 3: abortion_pro_autonomy`"]
+        I["`Cluster 4: abortion_con_life
+        Cluster 5: abortion_con_moral
+        Cluster 6: abortion_con_religious`"]
     end
     
     A --> E
@@ -340,22 +438,32 @@ flowchart TD
 <summary><strong>🌊 Directional Narrative Chains</strong></summary>
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
     subgraph "Abortion Narrative"
-        A["health\nMedical concerns"] --> B["womens_rights\nAutonomy arguments"]
-        B --> C["reproductive_rights\nPolicy framework"]
-        C --> D["abortion_access\nImplementation"]
+        A["`health
+        Medical concerns`"] --> B["`womens_rights
+        Autonomy arguments`"]
+        B --> C["`reproductive_rights
+        Policy framework`"]
+        C --> D["`abortion_access
+        Implementation`"]
     end
     
     subgraph "Gun Control Narrative"
-        E["violence_concern\nSafety issues"] --> F["public_safety\nProtection needs"]
-        F --> G["gun_regulation\nPolicy solutions"]
-        G --> H["policy_implementation\nEnforcement"]
+        E["`violence_concern
+        Safety issues`"] --> F["`public_safety
+        Protection needs`"]
+        F --> G["`gun_regulation
+        Policy solutions`"]
+        G --> H["`policy_implementation
+        Enforcement`"]
     end
     
     subgraph "Topic Assignment"
-        I["Topic: women autonomy reproductive\nMatches: womens_rights stage"]
-        J["Output: health → [womens_rights] → reproductive_rights → abortion_access"]
+        I["`Topic: women autonomy reproductive
+        Matches: womens_rights stage`"]
+        J["`Output: health → [womens_rights] → reproductive_rights → abortion_access`"]
     end
     
     A -.-> I
@@ -366,10 +474,18 @@ flowchart LR
 ```
 
 **Chain Detection Algorithm:**
-1. **Keyword Matching**: Topics matched against progression stage keywords
-2. **Score Calculation**: `keyword_matches + stage_matches` for best fit
-3. **Stage Highlighting**: Current position shown in brackets `[current_stage]`
-4. **Directional Arrows**: `→` indicates causal/temporal progression
+1. **Keyword Matching**: Topics analyzed against 4 predefined narrative chains (abortion, gun control, climate, economy)
+2. **Chain Identification**: Topics assigned to chains based on keyword overlap with chain vocabularies
+3. **Stage Detection**: Within matching chains, topics scored against progression stage keywords to find best fit
+4. **Score Calculation**: `chain_keyword_matches + best_stage_score` determines final assignment
+5. **Stage Highlighting**: Current position shown in brackets `[current_stage]` within full progression
+6. **Directional Output**: Complete causal chain with current stage highlighted (e.g., `health → [womens_rights] → reproductive_rights → abortion_access`)
+
+**Predefined Narrative Chains:**
+- **Abortion**: `health → womens_rights → reproductive_rights → abortion_access`
+- **Gun Control**: `violence_concern → public_safety → gun_regulation → policy_implementation`
+- **Climate**: `environmental_concern → scientific_evidence → policy_development → implementation`
+- **Economy**: `economic_conditions → employment_impact → policy_response → growth_outcomes`
 
 </details>
 
